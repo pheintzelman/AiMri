@@ -23,9 +23,9 @@ function ActivationLayerContainer() {
     if (!activations) return;
 
     const { layer, token, sublayer } = selectedLayer;
-    console.log({ sublayer });
+    console.log({ activations });
     const input = activations[prompt][`blocks.${layer}.${sublayer}`];
-    const currentActivations = input[0][token]; // Only show first token
+    const currentActivations = input[0][token];
     setCurrentActivations(currentActivations);
   }, [selectedLayer, activations]);
 

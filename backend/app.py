@@ -5,16 +5,14 @@ from typing import List, Optional, Dict, Any
 import torch
 import transformer_lens
 from transformer_lens import HookedTransformer
+from backend.constants import subLayer
+import numpy as np
 import asyncio
+
 
 modelName = {
     'gpt2': 'gpt2',
     'gpt2Small': 'gpt2-small'
-}
-
-subLayer = {
-    'input' : {'label': 'Input', 'name': "hook_resid_pre"},
-    'mlp-output' : {'label': 'MLP Output', 'name': "mlp.hook_post"},
 }
 
 # Initialize FastAPI app
@@ -28,7 +26,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Load pretrained GPT-2 model from TransformerLens
 model = HookedTransformer.from_pretrained(modelName['gpt2Small'])
 
 # ==== Data Models ====
@@ -81,24 +78,33 @@ def get_tokens(request: PromptRequest):
 @app.post("/activate")
 async def get_activations(request: PromptRequest):
     try:
+        print(list(model.hook_dict.keys()))
         all_data = {}
+
+        def sanitize_tensor(tensor):
+            # Replace NaN and infinite values with 0 (or another fallback like 1e6 if you want)
+            tensor = torch.nan_to_num(tensor, nan=0.0, posinf=1e6, neginf=-1e6)
+            return tensor.cpu().tolist()
 
         def get_hook(prompt, layer):
             def record(activation, hook):
                 key = f"{hook.name}"
-                all_data.setdefault(prompt, {})[key] = activation.detach().cpu().tolist()
+                cleaned = sanitize_tensor(activation.detach())
+                all_data.setdefault(prompt, {})[key] = cleaned
             return record
 
         prompt = request.prompt
         model.reset_hooks(including_permanent=True)
         model.cache = None
-        for layer in range(model.cfg.n_layers):
-            inputLayerName = subLayer["input"]["name"];
-            mlpOutputLayerName = subLayer["mlp-output"]["name"];
-            model.add_hook(f"blocks.{layer}.{inputLayerName}", get_hook(prompt, layer))
-            model.add_hook(f"blocks.{layer}.{mlpOutputLayerName}", get_hook(prompt, layer))
-        _ = model(prompt)
 
+        hooks = []
+        for layer in range(model.cfg.n_layers):
+            for sublayer_key, sublayer_info in subLayer.items():
+                hook_name = f"blocks.{layer}.{sublayer_info['name']}"
+                hooks.append((hook_name, get_hook(prompt, layer)))
+        
+        _ = model.run_with_hooks(prompt, fwd_hooks=hooks)
+        
         return {"activations": all_data}
     except Exception as e:
         print(f"Error during activation: {e}")
