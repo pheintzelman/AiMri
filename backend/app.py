@@ -6,6 +6,7 @@ import torch
 import transformer_lens
 from transformer_lens import HookedTransformer
 from backend.constants import subLayer
+from backend.attention import analyze_attention
 import numpy as np
 import asyncio
 
@@ -110,6 +111,17 @@ async def get_activations(request: PromptRequest):
         print(f"Error during activation: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/attention")
+async def attention_route(request: PromptRequest):
+    print("Received request")
+    prompt = request.prompt
+    print("Text:", prompt)
+
+    if not prompt:
+        return {"error": "Please provide text in JSON payload like {'text': 'some input'}"}
+
+    results = analyze_attention(model, prompt)
+    return results
 
 @app.post("/edit")
 def edit_node(edit: NodeEdit):
